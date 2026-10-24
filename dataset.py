@@ -4,13 +4,18 @@ import numpy as np
 import nltk
 import torch
 from torch.utils.data import Dataset
-from sklearn.preprocessing import normalize
 from sentence_transformers import SentenceTransformer
 import gensim.downloader as api
 
+
 class CommentData(Dataset):
     def __init__(self, path: str, embedder, num_classes=28):
-        df = pd.read_csv(path, sep="\t", header=None, names=["text", "labels", "id"])
+        df = pd.read_csv(
+            path, 
+            sep="\t", 
+            header=None, 
+            names=["text", "labels", "id"]
+        )
         self.embeddings_path = f"{path.split(".")[0]}-{embedder.model_name}.pt"
         
         if os.path.exists(self.embeddings_path):
@@ -18,8 +23,10 @@ class CommentData(Dataset):
             print(f"Loaded {len(self)} cached embeddings.")
         else:
             print("Encoding comments...")
+            
             embeddings = embedder.encode(df["text"].tolist())
             self.embeddings = torch.tensor(embeddings, dtype=torch.float32)
+            
             torch.save(self.embeddings, self.embeddings_path)
             print(f"Saved {len(self)} embeddings.")
             
@@ -46,11 +53,12 @@ class CommentData(Dataset):
 class ContextualEmbedder:
     def __init__(self, model_name="all-MiniLM-L6-v2"):
         self.model_name = model_name
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = None
 
     def encode(self, texts):
         if not self.model:
-            self.model = SentenceTransformer(self.model_name)
+            self.model = SentenceTransformer(self.model_name, device=self.device)
         return self.model.encode(texts, normalize_embeddings=True)
 
 

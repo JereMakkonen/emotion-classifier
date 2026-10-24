@@ -7,7 +7,6 @@ import torch.optim as optim
 from sklearn.metrics import f1_score, recall_score
 from dataset import CommentData, ContextualEmbedder, StaticEmbedder
 
-
 class EmotionClassifier(nn.Module):
     def __init__(
         self, 
@@ -40,32 +39,43 @@ class EmotionTrainer:
         model_path="data/emotion_classifier.pt",
     ):
 
-        self.model = model
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {self.device}")
+        
+        self.model = model.to(self.device)
+        
+        for dataset in (train_data, valid_data, test_data):
+            dataset.embeddings = dataset.embeddings.to(self.device)
+            dataset.labels = dataset.labels.to(self.device)
+        
         self.num_epochs = num_epochs
         self.model_path = model_path
-        self.train_loader = DataLoader(train_data, batch_size=64, shuffle=True)
-        self.valid_loader = DataLoader(valid_data, batch_size=64, shuffle=False)
-        self.test_loader = DataLoader(test_data, batch_size=64, shuffle=False)
+        self.train_loader = DataLoader(train_data, batch_size=1024, shuffle=True)
+        self.valid_loader = DataLoader(valid_data, batch_size=1024, shuffle=False)
+        self.test_loader = DataLoader(test_data, batch_size=1024, shuffle=False)
 
+        # Label weights
         pos_counts = train_data.labels.sum(dim=0)
         neg_counts = len(train_data.labels) - pos_counts
-        pos_weight = torch.sqrt(neg_counts / pos_counts).float()
+        pos_weight = torch.sqrt(neg_counts / pos_counts).float().to(self.device)
         
         self.criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=0.0005, weight_decay=0.005)
+        self.optimizer = optim.AdamW(self.model.parameters())
         self.best_f1 = 0.0
+
 
     def evaluate(self, loader):
         self.model.eval()
-        total_loss, predictions, labels_all = 0, [], []
+        predictions, labels_all =  [], []
+        total_loss = 0 
 
         with torch.no_grad():
             for embeddings, labels in loader:
                 logits = self.model(embeddings)
                 total_loss += self.criterion(logits, labels).item() * len(labels)
 
-                predictions.append((torch.sigmoid(logits) >= 0.5).int())
-                labels_all.append(labels.int())
+                predictions.append((torch.sigmoid(logits) >= 0.5).int().cpu())
+                labels_all.append(labels.int().cpu())
 
         y_pred = torch.cat(predictions).numpy()
         y_true = torch.cat(labels_all).numpy()
@@ -75,6 +85,7 @@ class EmotionTrainer:
             recall_score(y_true, y_pred, average="macro", zero_division=0),
             f1_score(y_true, y_pred, average="macro", zero_division=0)
         )
+        
         
     def train_epoch(self):
         self.model.train()
@@ -89,10 +100,11 @@ class EmotionTrainer:
 
         return total_loss / len(self.train_loader)
 
+
     def train(self):
         for epoch in range(self.num_epochs):
             train_loss = self.train_epoch()
-            loss, recall, f1 = (self.evaluate(self.valid_loader))
+            loss, recall, f1 = self.evaluate(self.valid_loader)
 
             print(
                 f"Epoch {epoch + 1}/{self.num_epochs}:\t"
@@ -109,35 +121,14 @@ class EmotionTrainer:
         self.model.load_state_dict(torch.load(self.model_path, weights_only=True))
         return self.model
 
+
     def test(self):
-        loss, recall, f1 = (self.evaluate(self.valid_loader))
+        loss, recall, f1 = self.evaluate(self.test_loader)
         print(
             f"Test data loss: {loss:.4f} | "
             f"Test data recall: {recall:.4f} | "
             f"Test data F1-score: {f1:.4f}"
         )
-    
-    
-def load_model(model, model_path):
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"No model found at: {model_path}")
-
-    state_dict = torch.load(model_path, weights_only=True)
-    model.load_state_dict(state_dict)
-    model.eval()
-    return model
-
-def predict(embedding, model):
-    embedding = torch.tensor(embedding, dtype=torch.float32)
-    model.eval()
-
-    with torch.no_grad():
-        logits = model(embedding)
-        probs = torch.sigmoid(logits)
-
-    arr = probs.cpu().numpy()[0]
-    print(np.array2string(arr, formatter={'float_kind': lambda x: f"{x:.2f}"}))
-
 
 
 if __name__ == "__main__":
@@ -162,10 +153,3 @@ if __name__ == "__main__":
     trainer.train()
     trainer.test()
     
-    
-    # model = load_model(model=model, model_path="data/emotion_classifier.pt")
-    
-    # embedding = embedder.encode(["Lol! But I love your last name though. XD"])
-    # predict(embedding=embedding, model=model)
-    # embedding = embedder.encode(["Girlfriend weak as well, that jump was pathetic."])
-    # predict(embedding=embedding, model=model)
