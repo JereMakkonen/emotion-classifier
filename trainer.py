@@ -1,7 +1,5 @@
-import os
 import torch
 from torch.utils.data import DataLoader
-import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import f1_score, recall_score
@@ -35,7 +33,7 @@ class EmotionTrainer:
         train_data,
         valid_data,
         test_data,
-        num_epochs=50,
+        num_epochs=100,
         model_path="data/emotion_classifier.pt",
     ):
 
@@ -133,7 +131,11 @@ class EmotionTrainer:
 
 if __name__ == "__main__":
     
-    embedder = ContextualEmbedder()
+    # embedder = StaticEmbedder(model_name="glove-twitter-200")
+    # embedder = StaticEmbedder(model_name="word2vec-google-news-300")
+    # embedder = ContextualEmbedder(model_name="paraphrase-mpnet-base-v2")
+    embedder = ContextualEmbedder(model_name="sentence-t5-base")
+    
     train_data = CommentData("data/train.tsv", embedder)
     test_data = CommentData("data/test.tsv", embedder)
     valid_data = CommentData("data/dev.tsv", embedder)
